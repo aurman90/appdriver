@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>نموذج بيانات المصانع</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <h1>نموذج بيانات المصانع</h1>
+    <button id="clearAll" title="مسح الكل">🗑️</button>
+  </header>
+
+  <main id="rows"></main>
+
+  <div class="action-bar">
+    <button id="addBtn">➕ إضافة صف</button>
+    <button id="csvBtn">📑 CSV</button>
+    <button id="excelBtn">📊 Excel</button>
+    <button id="pdfBtn">📄 PDF</button>
+    <button id="waBtn">📲 واتساب</button>
+  </div>
+
+  <div id="snackbar" class="snackbar"></div>
+</div>
+
+<script>
+/* App configuration */
+const PHONE = "+966506784040";
+const STORAGE_KEY = "factory_rows_v1";
+
+/* Utilities */
+function show(msg, time=2000) {
+  const s = document.getElementById('snackbar');
+  s.textContent = msg; s.classList.add('show');
+  setTimeout(()=>s.classList.remove('show'), time);
+}
+
+/* Data model helpers */
+function makeRowObject(id, vals = {}) {
+  return {
+    id,
+    date: vals.date||"",
+    orderNo: vals.orderNo||"",
+    factory: vals.factory||"arabia c",
+    location: vals.location||"braiman",
+    couponNo: vals.couponNo||"",
+    weight: vals.weight||""
+  };
+}
+
+let idCounter = 0;
+
+/* Persistence */
+function saveAll() {
+  const data = Array.from(document.querySelectorAll('.row-card')).map(card=>{
+    const inputs = card.querySelectorAll('input, select');
+    return Array.from(inputs).map(i=>i.value);
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function loadAll() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return false;
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return false;
+    document.getElementById('rows').innerHTML = '';
+    arr.forEach(vals => addRow(vals));
+    return true;
+  } catch(e) { console.error(e); return false; }
+}
+
+/* Validation */
+function validateAll(showErrors=true) {
+  let ok = true;
+  document.querySelectorAll('.row-card').forEach(card=>{
+    const inputs = card.querySelectorAll('input[required], select[required]');
+    inputs.forEach(inp=>{
+      inp.classList.remove('invalid');
+      if (!inp.value) {
+        ok = false;
+        if (showErrors) inp.classList.add('invalid');
+      }
+    });
+    // orderNo numeric
+    const order = card.querySelector('.orderNo');
+    if (order) {
+      order.value = order.value.replace(/[^0-9]/g,'');
+      if (!order.value) { ok=false; if (showErrors) order.classList.add('invalid'); }
+    }
+    // coupon uppercase alnum
+    const coupon = card.querySelector('.couponNo');
+    if (coupon) {
+      coupon.value = coupon.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
+      if (!coupon.value) { ok=false; if (showErrors) coupon.classList.add('invalid'); }
+    }
+    // weight within range
+    const weight = card.querySelector('.weight');
+    if (weight) {
+      weight.value = weight.value.replace(/[^0-9]/g,'');
+      const val = parseInt(weight.value||"0");
+      if (!(val>=13 && val<=35)) { ok=false; if (showErrors) weight.classList.add('invalid'); }
+    }
+  });
+  if (!ok && showErrors) show("تحقق من الحقول الملونة بالأحمر");
+  return ok;
+}
+
+/* Rendering */
+function createCard(vals=[]) {
+  idCounter++;
+  const card = document.createElement('article');
+  card.className = 'row-card';
+  card.innerHTML = `
+    <button class="delete" title="حذف">🗑️</button>
+    <div class="field"><label>#</label><div class="value id">${idCounter}</div></div>
+    <div class="field"><label>Date</label><input type="date" class="date" required value="${vals[0]||''}"></div>
+    <div class="field"><label>Order No.</label><input type="text" inputmode="numeric" class="orderNo" required value="${vals[1]||''}" placeholder="أرقام فقط"></div>
+    <div class="field"><label>Factory</label>
+      <select class="factory" required>
+        <option>arabia c</option><option>united c</option><option>yanbu c</option><option>wh y</option><option>wh j</option>
+      </select></div>
+    <div class="field"><label>Location Sales</label>
+      <select class="location" required>
+        <option>braiman</option><option>dhaban</option><option>Asfan</option><option>khomra</option><option>makka</option><option>rabegh</option><option>hamdanya</option>
+      </select></div>
+    <div class="field"><label>Coupon No.</label><input type="text" class="couponNo" required placeholder="EX: A12B3" value="${vals[4]||''}"></div>
+    <div class="field"><label>Weight (tons)</label><input type="number" class="weight" min="13" max="35" required placeholder="13-35" value="${vals[5]||''}"></div>
+  `;
+  // set selects value if provided
+  if (vals[2]) card.querySelector('.factory').value = vals[2];
+  if (vals[3]) card.querySelector('.location').value = vals[3];
+  // events
+  card.querySelector('.delete').addEventListener('click', ()=>{ card.remove(); show('تم حذف الصف'); saveAll(); });
+  card.querySelectorAll('input,select').forEach(el=>el.addEventListener('input', ()=>{ saveAll(); }));
+  return card;
+}
+
+function addRow(values=[]) {
+  const rows = document.getElementById('rows');
+  const card = createCard(values);
+  rows.appendChild(card);
+  saveAll();
+  const inp = card.querySelector('input, select');
+  if (inp) inp.focus();
+}
+
+/* Export functions */
+function exportCSV() {
+  if (!validateAll()) return;
+  const header = ['#','Date','Order No.','Factory','Location','Coupon','Weight'];
+  const lines = [header.join(',')];
+  document.querySelectorAll('.row-card').forEach(card=>{
+    const id = card.querySelector('.id').textContent;
+    const vals = Array.from(card.querySelectorAll('input,select')).map(i=>('"'+String(i.value).replace(/"/g,'""')+'"'));
+    lines.push([id, ...vals].join(','));
+  });
+  const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+  const name = 'factories.csv';
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = name; document.body.appendChild(link); link.click(); link.remove();
+  show('تم تصدير CSV');
+}
+
+/* Lazy load SheetJS for Excel export */
+let sheetJsLoaded = false;
+function loadSheetJS(callback) {
+  if (sheetJsLoaded) return callback();
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+  s.onload = ()=>{ sheetJsLoaded = true; callback(); };
+  document.body.appendChild(s);
+}
+
+function exportExcel() {
+  if (!validateAll()) return;
+  show('جاري تصدير Excel...');
+  loadSheetJS(()=> {
+    const wb = XLSX.utils.book_new();
+    const data = [['#','Date','Order No.','Factory','Location','Coupon','Weight']];
+    document.querySelectorAll('.row-card').forEach(card=>{
+      const id = card.querySelector('.id').textContent;
+      const vals = Array.from(card.querySelectorAll('input,select')).map(i=>i.value);
+      data.push([id,...vals]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, 'Factories');
+    const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+    const blob = new Blob([wbout], {type: 'application/octet-stream'});
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'factories.xlsx'; document.body.appendChild(link); link.click(); link.remove();
+    show('تم تصدير Excel');
+  });
+}
+
+/* Lazy load html2pdf for PDF export */
+let html2pdfLoaded = false;
+function loadHtml2Pdf(callback) {
+  if (html2pdfLoaded) return callback();
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.3/html2pdf.bundle.min.js';
+  s.onload = ()=>{ html2pdfLoaded = true; callback(); };
+  document.body.appendChild(s);
+}
+
+function exportPDF() {
+  if (!validateAll()) return;
+  show('جاري تصدير PDF...');
+  loadHtml2Pdf(()=> {
+    const opt = { margin:0.4, filename:'factories.pdf', html2canvas:{scale:2} };
+    html2pdf().set(opt).from(document.getElementById('rows')).save().then(()=> show('تم تصدير PDF'));
+  });
+}
+
+/* WhatsApp share: share summary text via wa.me */
+function shareToWhatsAppText() {
+  if (!validateAll()) return;
+  const lines = [];
+  document.querySelectorAll('.row-card').forEach(card=>{
+    const id = card.querySelector('.id').textContent;
+    const vals = Array.from(card.querySelectorAll('input,select')).map(i=>i.value||'-');
+    lines.push(`#${id} | ${vals.join(' | ')}`);
+  });
+  const text = encodeURIComponent('📋 بيانات المصانع:\n\n' + lines.join('\n'));
+  window.open(`https://wa.me/${PHONE.replace('+','')}` + `?text=${text}`, '_blank');
+}
+
+/* Initialization */
+document.addEventListener('DOMContentLoaded', ()=>{
+  const loaded = loadAll();
+  if (!loaded) addRow();
+  document.getElementById('addBtn').addEventListener('click', ()=>addRow());
+  document.getElementById('csvBtn').addEventListener('click', ()=>exportCSV());
+  document.getElementById('excelBtn').addEventListener('click', ()=>exportExcel());
+  document.getElementById('pdfBtn').addEventListener('click', ()=>exportPDF());
+  document.getElementById('waBtn').addEventListener('click', ()=>shareToWhatsAppText());
+  document.getElementById('clearAll').addEventListener('click', ()=>{
+    if (confirm('مسح جميع البيانات؟')) { localStorage.removeItem(STORAGE_KEY); document.getElementById('rows').innerHTML=''; idCounter=0; addRow(); show('تم المسح'); }
+  });
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('service-worker.js').then(()=>console.log('sw registered')).catch(()=>{});
+  }
+});
+</script>
+</body>
+</html>
